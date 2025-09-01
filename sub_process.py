@@ -4,6 +4,7 @@ import re
 import chardet
 from opencc import OpenCC
 import datetime
+import json
 import configparser
 
 # 默认ASS文件头
@@ -38,7 +39,7 @@ SRT_BLOCK_RE = re.compile(
 )
 
 # ----------  针对ASS格式的正则 ----------
-ASS_HEADER_RE = re.compile(r'^\[Script Info\].*?(?=Dialogue|$)', re.DOTALL)
+ASS_HEADER_RE = re.compile(r'^.*?(?=Dialogue|$)', re.DOTALL)
 ASS_DIALOGUE_RE = re.compile(r'^(Dialogue:\s*\d+,[^,]*,[^,]*,[^,]*,[^,]*,[^,]*,[^,]*,[^,]*,[^,]*,)(.*)$', re.MULTILINE)
 
 
@@ -55,7 +56,7 @@ def change_to_exe_dir():
     os.chdir(exe_dir)
     return exe_dir
 
-class SubProcess:
+class Subtitle_process:
     def __init__(self, sub_path, is_srt2ass=True, config_file='config_ini'):
         self.sub_path = sub_path
         self.is_srt2ass = is_srt2ass
@@ -97,34 +98,39 @@ class SubProcess:
             sys.exit(1)
 
     # 读取配置文件
-    def read_config(self):
+    def read_json_config(self):
         # 是否存在config.ini文件：
         if os.path.exists(self.config_file):  # 检查文件是否存在
             print(f'配置文件路径：{self.config_file}')
-            config = configparser.ConfigParser()
-            config.read(self.config_file)
+            try:
+                json_config = json.load(open(self.config_file, 'r', encoding='utf-8'))
+            except json.JSONDecodeError:
+                print(f"错误：'{self.config_file}' 不是一个有效的JSON文件。")
+                return
+
             # 读取 max_duration 的值
-            self.max_duration = config.getint("Settings", "max_duration", fallback=7)
+            self.max_duration = json_config.get("max_duration", 7)
+            print(f"max_duration: {self.max_duration}")
 
             # 读取配置文件中的替换字典，将整个section转为字典
-            self.replace_words = dict(config['Replacements'].items())
+            self.replace_words = json_config.get("replacements", {})
+            # for key, value in self.replace_words.items():
+            #     print(f"替换单词：{key} -> {value}")
 
-            ass_file = config.get('Settings', 'ass_file', fallback="")
-            # if not os.path.isabs(ass_file):
-            #     ass_file = os.path.join(f'config\\', ass_file)
-
+            # 处理ass_file文件：
+            ass_file = json_config.get('ass_file', '')
             if ass_file and os.path.exists(ass_file):
                 with open(ass_file, 'r', encoding='utf-8') as f:
-                    print(f'找到并使用了配置的ASS文件：{ass_file}')
+                    print(f'找到并使用了配置的ASS文件：{ass_file}\n')
                     ass_content = f.read().strip()
                     pattern = r'^\[Script Info\].*?(?=Dialogue|$)'
                     match = re.search(pattern, ass_content, re.DOTALL)
                     # print(match.group(0))
                     self.ass_style = match.group(0) if match else ass_header
             else:
-                print(f'警告：没有或未找到模板ASS文件：{ass_file}')
+                print(f'警告：没有或未找到模板ASS文件：{ass_file}\n')
         else:
-            print(f"警告：没有或未找到配置文件：{self.config_file}")
+            print(f"警告：没有或未找到配置文件：{self.config_file}\n")
 
     # 检测字幕的文件编码，并将编码以字符串的形式返回
     def detect_encoding(self, file_path) -> str:
@@ -203,18 +209,23 @@ class SubProcess:
                 except Exception as e:
                     continue
 
-        # 去掉开头标点（不包括问号）
-        text = re.sub(r'^[^\w]+', '', text, flags=re.UNICODE)
+        # 去掉开头的标点符号和空白符
+        text = re.sub(r'^[,.:;!?，。：；！？、\s]+(.*)$', r'\1', text, flags=re.UNICODE)
+        # text = re.sub(r'^[\W]+', '', text, flags=re.UNICODE)
 
         # 去掉所有尾部标点（不包括问号和叹号）
-        text = re.sub(r'[，。、；：,.;:\s]+$', '', text, flags=re.UNICODE)
+        text = re.sub(r'^(.*)[,.:;，。：；、\s]+$', r'\1', text, flags=re.UNICODE)
 
-        # 如果一行完全由语气词（呃 / 诶 / 啊…，但‘嗯’则保留）或标点组成，则替换为空
-        text = re.sub(r'^[ ,.，。！!?？：；;—\-\–…"\'「」『』（）哒喽呗嘛哟哇呃啊哦啦唉欸诶喔呀呐哼哈嘿喂]*$', '', text, flags=re.UNICODE)
+        # 将文本中重复了2次及以上的多字字符串替换为1次
+        pattern = r'(..+?)(\1){1,}'      # 匹配任何重复至少2次的双字及以上的子字符串
+        text = re.sub(pattern, r'\1', text, flags=re.UNICODE)
 
         # 如果一行中有重叠的2个及以上语气词，则只保留1个
-        text = re.sub(r'([ ,.，。！!?？：；;哒喽呗嘛哟哇呃啊哦啦唉欸诶喔呀呐哼哈嘿喂嗯]){2,}', r'\1', text, flags=re.UNICODE)
+        text = re.sub(r'([ ,.，。！!?？：；;哒喽呗嘛哟哇呃啊哦啦唉欸诶喔呀呐哼哈喂]){2,}', r'\1', text, flags=re.UNICODE)
 
+        # 如果一行完全由语气词（呃 / 诶 / 啊…，但‘嗯’则保留）或标点组成，则替换为空
+        text = re.sub(r'^[ ,.，。！!?？：；;—\-\–…"\'「」『』（）哒喽呗嘛哟哇呃啊哦啦唉欸诶喔呀呐哼哈嘿喂]*$', '', text,
+                      flags=re.UNICODE)
 
         return text.strip()
 
@@ -388,7 +399,7 @@ class SubProcess:
 
 
     def process_all(self):
-        self.read_config()
+        self.read_json_config()
         self.find_sub_files()
         i = 0
         count = len(self.sub_files)
@@ -407,9 +418,9 @@ class SubProcess:
 def main():
     # current_dir = os.path.abspath('.')
     # print(f"当前目录: \t{current_dir}")
-    #
-    # # 获取当前脚本文件所在的目录
-    # script_dir = os.path.dirname(os.path.abspath(__file__))
+
+    # 获取当前脚本文件所在的目录
+    script_dir = os.path.dirname(os.path.abspath(__file__))
     # print(f"脚本所在目录: \t{script_dir}")
 
     new_path = change_to_exe_dir()
@@ -433,7 +444,7 @@ def main():
     # is_srt2ass = True
 
     # 实例化类并执行其中的总流程：
-    sub_proces = SubProcess(sub_path, is_srt2ass, config_file='config.ini')
+    sub_proces = Subtitle_process(sub_path, is_srt2ass, config_file='config.json')
     sub_proces.process_all()
 
 
