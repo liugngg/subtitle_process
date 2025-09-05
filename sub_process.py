@@ -4,8 +4,9 @@ import re
 import chardet
 from opencc import OpenCC
 import datetime
-import json
-import configparser
+import yaml
+# import json
+# import configparser
 
 # 默认ASS文件头
 ass_header = """[Script Info]
@@ -39,8 +40,26 @@ SRT_BLOCK_RE = re.compile(
 )
 
 # ----------  针对ASS格式的正则 ----------
-ASS_HEADER_RE = re.compile(r'^.*?(?=Dialogue|$)', re.DOTALL)
+ASS_HEADER_RE = re.compile(r'^.*?(?=Dialogue)', re.DOTALL)
 ASS_DIALOGUE_RE = re.compile(r'^(Dialogue:\s*\d+,[^,]*,[^,]*,[^,]*,[^,]*,[^,]*,[^,]*,[^,]*,[^,]*,)(.*)$', re.MULTILINE)
+
+# ###########需要清理的内容#######################
+# 去掉开头的标点符号和空白符
+BLANK_HEAD_RE = re.compile(r'^[\W]+', flags=re.UNICODE|re.MULTILINE)
+# text = re.sub(r'^[\W]+', '', text, flags=re.UNICODE)
+
+# 去掉所有尾部标点（不包括问号和叹号）
+BLANK_TAIL_RE = re.compile(r'[,.:;，。：；、\s]+$', flags=re.UNICODE|re.MULTILINE)
+
+# 将文本中重复了2次及以上的多字字符串替换为1次
+REPEAT_CONTENT_RE = re.compile(r'(..+?)(\1){1,}',  flags=re.UNICODE)# 匹配任何重复至少2次的双字及以上的子字符串
+
+# 如果一行中有重叠的2个及以上语气词，则只保留1个
+REPEAT_CHAR_RE = re.compile(r'([ ,.，。！!?？：；;哒喽呗嘛哟哇呃啊哦啦唉欸诶喔呀呐哼哈喂]){2,}',flags=re.UNICODE)
+
+# 如果一行完全由语气词（呃 / 诶 / 啊…，但‘嗯’则保留）或标点组成，则替换为空
+BLANK_RE = re.compile(r'^[ ,.，。！!?？：；;—\-\–…\"\'「」『』（）哒喽呗嘛哟哇呃啊哦啦唉欸诶喔呀呐哼哈嘿喂]*$', flags=re.UNICODE|re.MULTILINE)
+###############################################################
 
 
 def change_to_exe_dir():
@@ -98,39 +117,50 @@ class Subtitle_process:
             sys.exit(1)
 
     # 读取配置文件
-    def read_json_config(self):
-        # 是否存在config.ini文件：
+    def read_yaml_config(self):
+        # 是否存在config.yml文件：
         if os.path.exists(self.config_file):  # 检查文件是否存在
-            print(f'配置文件路径：{self.config_file}')
+            print(f'找到并将使用 配置文件：{self.config_file}')
             try:
-                json_config = json.load(open(self.config_file, 'r', encoding='utf-8'))
-            except json.JSONDecodeError:
-                print(f"错误：'{self.config_file}' 不是一个有效的JSON文件。")
+                yaml_config = yaml.load(open(self.config_file, 'r', encoding='utf-8'), Loader=yaml.FullLoader)
+
+                # 读取 max_duration 的值
+                self.max_duration = yaml_config.get("max_duration", 7)
+                print(f"max_duration: {self.max_duration}")
+
+                # 读取配置文件中的替换字典，将整个section转为字典
+                self.replace_words = yaml_config.get("replacements", {})
+                if self.replace_words:
+                    print(f"找到并将使用 替换单词")
+                # for key, value in self.replace_words.items():
+                #     print(f"替换单词：{key} -> {value}")
+
+                # 处理ass_file文件：
+                ass_file = yaml_config.get('ass_file', '')
+                if ass_file and os.path.exists(ass_file):
+                    with open(ass_file, 'r', encoding='utf-8') as f:
+                        # print(f'找到并使用了配置的ASS文件：{ass_file}\n')
+                        ass_content = f.read().strip()
+                        match = ASS_HEADER_RE.search(ass_content)
+                        if match:
+                            self.ass_style = match.group(0)
+                            print(f"找到并将使用 配置的ASS文件\n")
+                        else:
+                            print(f"警告：配置的ASS文件未发现有效的ass文件头：{ass_file}\n")
+                            self.ass_style = ass_header
+                else:
+                    print(f'警告：没有或未找到模板ASS文件：{ass_file}\n')
+
+            except yaml.YAMLError:
+                print(f"错误：'{self.config_file}' 不是一个有效的YAML文件。\n")
+                return
+            except Exception as e:
+                print(f"错误：'{self.config_file}' 读取失败：{e}\n")
                 return
 
-            # 读取 max_duration 的值
-            self.max_duration = json_config.get("max_duration", 7)
-            print(f"max_duration: {self.max_duration}")
-
-            # 读取配置文件中的替换字典，将整个section转为字典
-            self.replace_words = json_config.get("replacements", {})
-            # for key, value in self.replace_words.items():
-            #     print(f"替换单词：{key} -> {value}")
-
-            # 处理ass_file文件：
-            ass_file = json_config.get('ass_file', '')
-            if ass_file and os.path.exists(ass_file):
-                with open(ass_file, 'r', encoding='utf-8') as f:
-                    print(f'找到并使用了配置的ASS文件：{ass_file}\n')
-                    ass_content = f.read().strip()
-                    pattern = r'^\[Script Info\].*?(?=Dialogue|$)'
-                    match = re.search(pattern, ass_content, re.DOTALL)
-                    # print(match.group(0))
-                    self.ass_style = match.group(0) if match else ass_header
-            else:
-                print(f'警告：没有或未找到模板ASS文件：{ass_file}\n')
         else:
             print(f"警告：没有或未找到配置文件：{self.config_file}\n")
+
 
     # 检测字幕的文件编码，并将编码以字符串的形式返回
     def detect_encoding(self, file_path) -> str:
@@ -209,23 +239,20 @@ class Subtitle_process:
                 except Exception as e:
                     continue
 
-        # 去掉开头的标点符号和空白符
-        text = re.sub(r'^[,.:;!?，。：；！？、\s]+(.*)$', r'\1', text, flags=re.UNICODE)
-        # text = re.sub(r'^[\W]+', '', text, flags=re.UNICODE)
-
-        # 去掉所有尾部标点（不包括问号和叹号）
-        text = re.sub(r'^(.*)[,.:;，。：；、\s]+$', r'\1', text, flags=re.UNICODE)
-
         # 将文本中重复了2次及以上的多字字符串替换为1次
-        pattern = r'(..+?)(\1){1,}'      # 匹配任何重复至少2次的双字及以上的子字符串
-        text = re.sub(pattern, r'\1', text, flags=re.UNICODE)
+        text = REPEAT_CONTENT_RE.sub(r'\1', text)
 
         # 如果一行中有重叠的2个及以上语气词，则只保留1个
-        text = re.sub(r'([ ,.，。！!?？：；;哒喽呗嘛哟哇呃啊哦啦唉欸诶喔呀呐哼哈喂]){2,}', r'\1', text, flags=re.UNICODE)
+        text = REPEAT_CHAR_RE.sub(r'\1', text)
+
+        # 去掉开头的标点符号和空白符
+        text = BLANK_HEAD_RE.sub(r'', text)
+
+        # 去掉所有尾部标点（不包括问号和叹号）
+        text = BLANK_TAIL_RE.sub(r'', text)
 
         # 如果一行完全由语气词（呃 / 诶 / 啊…，但‘嗯’则保留）或标点组成，则替换为空
-        text = re.sub(r'^[ ,.，。！!?？：；;—\-\–…"\'「」『』（）哒喽呗嘛哟哇呃啊哦啦唉欸诶喔呀呐哼哈嘿喂]*$', '', text,
-                      flags=re.UNICODE)
+        text = BLANK_RE.sub(r'', text)
 
         return text.strip()
 
@@ -399,7 +426,7 @@ class Subtitle_process:
 
 
     def process_all(self):
-        self.read_json_config()
+        self.read_yaml_config()
         self.find_sub_files()
         i = 0
         count = len(self.sub_files)
@@ -416,20 +443,13 @@ class Subtitle_process:
         print(f"全部 {count} 字幕文件已处理完成！")
 
 def main():
-    # current_dir = os.path.abspath('.')
-    # print(f"当前目录: \t{current_dir}")
-
-    # 获取当前脚本文件所在的目录
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    # print(f"脚本所在目录: \t{script_dir}")
-
     new_path = change_to_exe_dir()
     print(f"当前工作目录已修改为: \t{new_path}")
 
     # 检查参数数量
     if len(sys.argv) < 2:
         print("错误：请至少提供文件或文件夹路径作为参数。")
-        print("用法: 工具.exe", sys.argv[0], "<文件路径>", "is_srt2ass")
+        print("用法: 工具.exe", sys.argv[0], "<文件路径>", "[is_srt2ass]")
         sys.exit(1)
     elif len(sys.argv) == 2:    # 只有一个参数时，单纯执行字幕繁->简、替换等处理功能
         is_srt2ass = False
@@ -444,7 +464,7 @@ def main():
     # is_srt2ass = True
 
     # 实例化类并执行其中的总流程：
-    sub_proces = Subtitle_process(sub_path, is_srt2ass, config_file='config.json')
+    sub_proces = Subtitle_process(sub_path, is_srt2ass, config_file='config.yml')
     sub_proces.process_all()
 
 
