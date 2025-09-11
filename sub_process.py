@@ -45,7 +45,7 @@ ASS_DIALOGUE_RE = re.compile(r'^(Dialogue:\s*\d+,[^,]*,[^,]*,[^,]*,[^,]*,[^,]*,[
 
 # ###########需要清理的内容#######################
 # 去掉开头的标点符号和空白符
-BLANK_HEAD_RE = re.compile(r'^[\W]+', flags=re.UNICODE|re.MULTILINE)
+BLANK_HEAD_RE = re.compile(r'^[^\w(（\'"‘“]+', flags=re.UNICODE|re.MULTILINE)
 # text = re.sub(r'^[\W]+', '', text, flags=re.UNICODE)
 
 # 去掉所有尾部标点（不包括问号和叹号）
@@ -466,6 +466,7 @@ def main():
     # 实例化类并执行其中的总流程：
     sub_proces = Subtitle_process(sub_path, is_srt2ass, config_file='config.yml')
     sub_proces.process_all()
+ 
 
 
 if __name__ == "__main__":
