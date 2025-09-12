@@ -466,7 +466,6 @@ def main():
     # 实例化类并执行其中的总流程：
     sub_proces = Subtitle_process(sub_path, is_srt2ass, config_file='config.yml')
     sub_proces.process_all()
- 
 
 
 if __name__ == "__main__":
