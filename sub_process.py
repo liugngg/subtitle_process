@@ -31,17 +31,17 @@ sub_filetype = ['.srt', '.ass', '.ssa']
 SUB_TIME_RE = re.compile(r'\d{1,2}:\d{2}:\d{2}[,.]\d{2,3}')
 
 # ----------  针对SRT格式的正则 ----------
-SRT_SPLIT_RE = re.compile(r'\r?\n\s*\n')          # 段落分隔
+SRT_SPLIT_RE = re.compile(r'\r?\n\s*\n',flags=re.UNICODE|re.MULTILINE)          # 段落分隔
 SRT_BLOCK_RE = re.compile(
     r'^\s*(\d+)\s*\n'                             # 序号
     r'(\d{2}:\d{2}:\d{2}[,.]\d{3}\s*-->\s*\d{2}:\d{2}:\d{2}[,.]\d{3})\s*\n'  # 时间轴
-    r'([\s\S]*?)$',                               # 字幕文本
-    re.MULTILINE
+    r'([\s\S]*)$',
+    flags=re.UNICODE|re.MULTILINE     # 字幕文本
 )
 
 # ----------  针对ASS格式的正则 ----------
 ASS_HEADER_RE = re.compile(r'^.*?(?=Dialogue)', re.DOTALL)
-ASS_DIALOGUE_RE = re.compile(r'^(Dialogue:\s*\d+,[^,]*,[^,]*,[^,]*,[^,]*,[^,]*,[^,]*,[^,]*,[^,]*,)(.*)$', re.MULTILINE)
+ASS_DIALOGUE_RE = re.compile(r'^(Dialogue:\s*\d+,[^,]*,[^,]*,[^,]*,[^,]*,[^,]*,[^,]*,[^,]*,[^,]*,)(.*)$', flags=re.UNICODE|re.MULTILINE)
 
 # ###########需要清理的内容#######################
 # 去掉开头的标点符号和空白符
@@ -52,13 +52,13 @@ BLANK_HEAD_RE = re.compile(r'^[^\w(（\'"‘“]+', flags=re.UNICODE|re.MULTILIN
 BLANK_TAIL_RE = re.compile(r'[,.:;，。：；、\s]+$', flags=re.UNICODE|re.MULTILINE)
 
 # 将文本中重复了2次及以上的多字字符串替换为1次
-REPEAT_CONTENT_RE = re.compile(r'(..+?)(\1){1,}',  flags=re.UNICODE)# 匹配任何重复至少2次的双字及以上的子字符串
+REPEAT_CONTENT_RE = re.compile(r'(..+?)(\1){1,}', flags=re.UNICODE|re.MULTILINE)# 匹配任何重复至少2次的双字及以上的子字符串
 
 # 如果一行中有重叠的2个及以上语气词，则只保留1个
-REPEAT_CHAR_RE = re.compile(r'([ ,.，。！!?？：；;哒喽呗嘛哟哇呃啊哦啦唉欸诶喔呀呐哼哈喂]){2,}',flags=re.UNICODE)
+REPEAT_CHAR_RE = re.compile(r'([ ,.，。！!?？：；;嗯呵哒喽呗嘛哟哇呃啊哦啦唉欸诶喔呀呐哼哈喂]){2,}',flags=re.UNICODE)
 
 # 如果一行完全由语气词（呃 / 诶 / 啊…，但‘嗯’则保留）或标点组成，则替换为空
-BLANK_RE = re.compile(r'^[ ,.，。！!?？：；;—\-\–…\"\'「」『』（）哒喽呗嘛哟哇呃啊哦啦唉欸诶喔呀呐哼哈嘿喂]*$', flags=re.UNICODE|re.MULTILINE)
+BLANK_RE = re.compile(r'^[ ,.，。！!?？：；;—\-\–…\"\'「」『』()（）嗯呵哒喽呗嘛哟哇呃啊哦啦唉欸诶喔呀呐哼哈嘿喂]*$', flags=re.UNICODE|re.MULTILINE)
 ###############################################################
 
 
@@ -460,7 +460,7 @@ def main():
     sub_path = sys.argv[1]
 
     # # 手动测试时：
-    # sub_path = r"test\test-bak.srt"
+    # sub_path = r"test\test.srt"
     # is_srt2ass = True
 
     # 实例化类并执行其中的总流程：
