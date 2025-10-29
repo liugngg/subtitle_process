@@ -55,10 +55,10 @@ BLANK_TAIL_RE = re.compile(r'[,.:;，。：；、\s]+$', flags=re.UNICODE|re.MUL
 REPEAT_CONTENT_RE = re.compile(r'(..+?)(\1){1,}', flags=re.UNICODE|re.MULTILINE)# 匹配任何重复至少2次的双字及以上的子字符串
 
 # 如果一行中有重叠的2个及以上语气词，则只保留1个
-REPEAT_CHAR_RE = re.compile(r'([ ,.，。！!?？：；;嗯呵哒喽呗嘛哟哇呃啊哦啦唉欸诶喔呀呐哼哈喂]){2,}',flags=re.UNICODE)
+REPEAT_CHAR_RE = re.compile(r'([ ,.，。！!?？：；;嗯呵哒喽呗嘛哟哇呃啊哦啦唉欸诶喔呀呐哼哈喂唔]){2,}',flags=re.UNICODE)
 
 # 如果一行完全由语气词（呃 / 诶 / 啊…，但‘嗯’则保留）或标点组成，则替换为空
-BLANK_RE = re.compile(r'^[ ,.，。！!?？：；;—\-\–…\"\'「」『』()（）嗯呵哒喽呗嘛哟哇呃啊哦啦唉欸诶喔呀呐哼哈嘿喂]*$', flags=re.UNICODE|re.MULTILINE)
+BLANK_RE = re.compile(r'^[ ,.，。！!?？：；;—\-\–…\"\'「」『』()（）嗯呵哒喽呗嘛哟哇呃啊哦啦唉欸诶喔呀呐哼哈嘿喂唔]*$', flags=re.UNICODE|re.MULTILINE)
 ###############################################################
 
 ################### 开始定义公用的函数 ################################
@@ -118,6 +118,24 @@ def find_files(file_path: str, type_lst) -> list:
                 continue  # 跳过无权限目录
     return input_files
 
+# 读取配置文件
+def read_yaml_config(config_file='config.yml'):
+    # 是否存在config.yml文件：
+    if os.path.exists(config_file):  # 检查文件是否存在
+        try:
+            yaml_config = yaml.load(open(config_file, 'r', encoding='utf-8'), Loader=yaml.FullLoader)
+            return yaml_config
+        
+        except yaml.YAMLError:
+            print(f"错误：'{config_file}' 不是一个有效的YAML文件。\n")
+            return ''
+        except Exception as e:
+            print(f"错误：'{config_file}' 读取失败：{e}\n")
+            return ''
+    else:
+        return ''
+        # print(f"警告：没有或未找到配置文件：{self.config_file}\n")
+
 
 # 判断执行的环境，将当前工作目录修改为可执行文件所在的目录
 def change_to_exe_dir():
@@ -136,7 +154,7 @@ def change_to_exe_dir():
 
 
 class sub_process:
-    def __init__(self, is_srt2ass=True, config_file='config_ini'):
+    def __init__(self, is_srt2ass=True, config_file='config.yml'):
         self.is_srt2ass = is_srt2ass
         self.ass_style = ass_header
         self.config_file = config_file
@@ -149,76 +167,44 @@ class sub_process:
         self.current_content = ''
 
         # 从config_file中读取配置参数
-        self.read_yaml_config()
+        self.get_config()
 
     # 读取配置文件
-    def read_yaml_config(self):
-        # 是否存在config.yml文件：
-        if os.path.exists(self.config_file):  # 检查文件是否存在
+    def get_config(self):
+        # 读取config.yml文件：
+        yaml_config = read_yaml_config(self.config_file)
+
+        if yaml_config:  # 检查是否为空
             print(f'找到并将使用 配置文件：{self.config_file}')
-            try:
-                yaml_config = yaml.load(open(self.config_file, 'r', encoding='utf-8'), Loader=yaml.FullLoader)
+            # 读取 max_duration 的值
+            self.max_duration = yaml_config.get("max_duration", 7)
+            print(f"max_duration: {self.max_duration}")
 
-                # 读取 max_duration 的值
-                self.max_duration = yaml_config.get("max_duration", 7)
-                print(f"max_duration: {self.max_duration}")
+            # 读取配置文件中的替换字典，将整个section转为字典
+            self.replace_words = yaml_config.get("replacements", {})
+            if self.replace_words:
+                print(f"找到并将使用 替换单词")
+            # for key, value in self.replace_words.items():
+            #     print(f"替换单词：{key} -> {value}")
 
-                # 读取配置文件中的替换字典，将整个section转为字典
-                self.replace_words = yaml_config.get("replacements", {})
-                if self.replace_words:
-                    print(f"找到并将使用 替换单词")
-                # for key, value in self.replace_words.items():
-                #     print(f"替换单词：{key} -> {value}")
-
-                # 处理ass_file文件：
-                ass_file = yaml_config.get('ass_file', '')
-                if ass_file and os.path.exists(ass_file):
-                    with open(ass_file, 'r', encoding='utf-8') as f:
-                        # print(f'找到并使用了配置的ASS文件：{ass_file}\n')
-                        ass_content = f.read().strip()
-                        match = ASS_HEADER_RE.search(ass_content)
-                        if match:
-                            self.ass_style = match.group(0)
-                            print(f"找到并将使用 配置的ASS文件\n")
-                        else:
-                            print(f"警告：配置的ASS文件未发现有效的ass文件头：{ass_file}\n")
-                            self.ass_style = ass_header
-                else:
-                    print(f'警告：没有或未找到模板ASS文件：{ass_file}\n')
-
-            except yaml.YAMLError:
-                print(f"错误：'{self.config_file}' 不是一个有效的YAML文件。\n")
-                return
-            except Exception as e:
-                print(f"错误：'{self.config_file}' 读取失败：{e}\n")
-                return
+            # 处理ass_file文件：
+            ass_file = yaml_config.get('ass_file', '')
+            if ass_file and os.path.exists(ass_file):
+                with open(ass_file, 'r', encoding='utf-8') as f:
+                    # print(f'找到并使用了配置的ASS文件：{ass_file}\n')
+                    ass_content = f.read().strip()
+                    match = ASS_HEADER_RE.search(ass_content)
+                    if match:
+                        self.ass_style = match.group(0)
+                        print(f"找到并将使用 配置的ASS文件\n")
+                    else:
+                        print(f"警告：配置的ASS文件未发现有效的ass文件头：{ass_file}\n")
+                        self.ass_style = ass_header
+            else:
+                print(f'警告：没有或未找到模板ASS文件：{ass_file}\n')
 
         else:
             print(f"警告：没有或未找到配置文件：{self.config_file}\n")
-
-
-
-        if not self.current_file:
-            return
-        self.current_root, self.current_ext = os.path.splitext(self.current_file)
-        # if self.current_ext.lower() not in sub_filetype:
-        #     print(f"错误：'{self.current_file}' 不是一个有效的字幕文件。")
-        #     return
-        encoding = self.detect_encoding(self.current_file)
-        try:
-            with open(self.current_file, 'r', encoding=encoding) as f:
-                self.current_content = f.read()
-        except UnicodeDecodeError:
-            # 如果检测失败，尝试常见编码
-            for enc in ['utf-8', 'gbk', 'big5', 'latin1']:
-                try:
-                    with open(self.current_file, 'r', encoding=enc) as f:
-                        self.current_content = f.read()
-                        self.current_encoding = enc
-                    break
-                except UnicodeDecodeError:
-                    self.current_content = ''
-                    continue
 
 
     # 清理字幕文件
@@ -429,9 +415,7 @@ class sub_process:
     
     # sub_process类的入口函数：
     def process_all(self, input_file):
-        self.current_file = input_file
-        _, ext = os.path.splitext(input_file)
-     
+        self.current_file = input_file  
         print(f"正在处理: {self.current_file}")
 
         self.current_content = read_file(self.current_file)
@@ -440,6 +424,7 @@ class sub_process:
         self.current_content = tw2cn(self.current_content)
         print("✓ 繁体->简体转换完成")
 
+        _, ext = os.path.splitext(input_file)
         if ext.lower() == '.srt':
             self.process_srt()
         else:
@@ -447,33 +432,58 @@ class sub_process:
 
 
 class novel_process:
-    def __init__(self):
+    def __init__(self, config_file='config.yml'):
+        self.config_file = config_file
+        self.replace_words ={}
+        self.is_indent = True
+        self.is_2lines_space = True
+        self.is_short_title = True
+        self.short_title_length = 12
+        self.indent_chars = '  '
+
         self.chapter_patterns = [
             # 第X章 章节标题
-            r'^\s*第[零一二三四五六七八九十百千\d]+\s*章\s*[^\n]*$',
-            # 第X节 章节标题
-            r'^\s*第[零一二三四五六七八九十百千\d]+\s*节\s*[^\n]*$',
-            # 第X回 章节标题
-            r'^\s*第[零一二三四五六七八九十百千\d]+\s*回\s*[^\n]*$',
-            # 卷X 章节标题
-            r'^\s*第[零一二三四五六七八九十百千\d]+\s*卷\s*[^\n]*$',
+            r'^\s*第[零一二三四五六七八九十百千\d]+\s*[章节回卷].*?$',           
             # 特殊章节：序、前言、尾声、后记等
-            r'^\s*(序言?|前言|楔子|引言|开场白|序幕)\s*[^\n]*$',
-            r'^\s*(尾声|后记|结语|终章|完结篇|大结局)\s*[^\n]*$',
-            r'^\s*(附录|附记|补记|外传)\s*[^\n]*$',
-            # 数字章节：1. 2. 3. 等
-            r'^\s*\d+\s*[\.．、]\s*[^\n]*$',
-            # 中文数字章节：一、二、三、等
-            r'^\s*[零一二三四五六七八九十百千]+\s*[\.．、]\s*[^\n]*$',
+            r'^\s*(序言?|前言|楔子|引言|开场白|序幕).*?$',
+            r'^\s*(尾声|后记|结语|终章|完结篇|大结局).*?$',
+            r'^\s*(附录|附记|补记|外传).*?$',
+            # 数字章节：1. 2. （一）【2】等：
+            r'^\s*[(（\[【「]?[零一二三四五六七八九十百千\d]+[)）\]】」]?[、. ]?\s*$',
+            # 数字章节：1. 2. （一）【2】等,后面带内容的标题
+            r'^\s*[(（\[【「]?[零一二三四五六七八九十百千\d]+[)）\]】」、]+.*$',
+            # 符号章节：# 标题
+            r'^[#]+.*?$'
         ]
-          
-    
+        self.get_config()
+    def get_config(self):
+        # 读取config.yml文件：
+        yaml_config = read_yaml_config(self.config_file)
+
+        if yaml_config:  # 检查是否为空
+            print(f'找到并将使用 配置文件：{self.config_file}')
+       
+            # 读取配置文件中的替换字典，将整个section转为字典
+            self.replace_words = yaml_config.get("text_replacements", {})
+            if self.replace_words:
+                print(f"找到并将使用 替换单词")
+            # for key, value in self.replace_words.items():
+            #     print(f"替换单词：{key} -> {value}")
+            self.is_indent = yaml_config.get("is_indent", True)
+            self.is_2lines_space = yaml_config.get("is_2lines_space", True)
+            self.is_short_title = yaml_config.get("is_short_title", True)
+            self.short_title_length = yaml_config.get("short_title_length", 12)
+            self.indent_chars = yaml_config.get("indent_chars", "  ")
+            
+        else:
+            print(f"警告：没有或未找到配置文件：{self.config_file}\n")
+
         
     def save_file(self, file_path: str, content: str):
         """保存处理后的文件"""
         try:
             base_name = os.path.splitext(file_path)[0]
-            output_path = f"{base_name}_处理后.txt"
+            output_path = f"{base_name}_已处理.txt"
             with open(output_path, 'w', encoding='utf-8') as f:
                 f.write(content)
             print(f"文件已保存为: {output_path}")
@@ -482,152 +492,22 @@ class novel_process:
             print(f"保存文件时出错: {e}")
             return None
     
-    def remove_extra_blank_lines(self, content: str) -> str:
-        """删除多余的空白行"""
-        # 将多个连续空白行替换为单个空白行
-        content = re.sub(r'\n\s*\n\s*\n+', '\n\n', content)
-        # 删除开头的空白行
-        content = re.sub(r'^\s*\n+', '', content)
-        # 删除结尾的空白行
-        content = re.sub(r'\n\s*$', '', content)
-        return content
-    
-    def detect_chapters(self, lines: List[str]) -> List[Tuple[int, str]]:
-        """检测章节标题"""
-        chapters = []
-        
-        for i, line in enumerate(lines):
-            line = line.strip()
-            if not line:
+    def replace_line(self, line: str) -> str:
+        text = line.strip()
+        """将指定的单词替换为对应的值"""
+        for old_wd, new_wd in self.replace_words.items():
+            try:
+                text = re.sub(old_wd, new_wd, text, flags=re.UNICODE)
+            except re.error as e:
+                print(f"'{old_wd}'正则表达式语法错误: {e}")
                 continue
-                
-            for pattern in self.chapter_patterns:
-                if re.match(pattern, line, re.IGNORECASE):
-                    # 检查是否是真正的章节标题（排除段落中的匹配）
-                    if self._is_real_chapter_title(lines, i, line):
-                        chapters.append((i, line))
-                        break
-        
-        return chapters
-    
-    def _is_real_chapter_title(self, lines: List[str], index: int, line: str) -> bool:
-        """判断是否是真正的章节标题"""
-        # 章节标题通常比较短，且前后有较多空白行
-        if len(line) > 5:  # 太长的可能是段落
-            return False
-        
-        # 检查前面是否有空白行
-        prev_lines = lines[max(0, index-3):index]
-        has_prev_blank = any(not line.strip() for line in prev_lines)
-        
-        # 检查后面是否有内容
-        next_lines = lines[index+1:min(len(lines), index+5)]
-        has_next_content = any(line.strip() for line in next_lines)
-        
-        return has_prev_blank and has_next_content
-    
-    def process_paragraphs(self, content: str) -> str:
-        """处理段落格式"""
-        lines = content.split('\n')
-        processed_lines = []
-        current_paragraph = []
-        
-        for i, line in enumerate(lines):
-            line = line.strip()
-            if not line:
-                # 遇到空行，结束当前段落
-                if current_paragraph:
-                    processed_lines.append(self._format_paragraph(current_paragraph))
-                    current_paragraph = []
-                processed_lines.append('')  # 保留段落间的空行
-            else:
-                # 判断是否是章节标题
-                is_chapter = False
-                for pattern in self.chapter_patterns:
-                    if re.match(pattern, line):
-                        is_chapter = True
-                        break
-                
-                if is_chapter and self._is_real_chapter_title(lines, i, line):
-                    # 章节标题前结束当前段落
-                    if current_paragraph:
-                        processed_lines.append(self._format_paragraph(current_paragraph))
-                        current_paragraph = []
-                    processed_lines.append('')  # 章节前加空行
-                    processed_lines.append(line)
-                    processed_lines.append('')  # 章节后加空行
-                else:
-                    current_paragraph.append(line)
+            except Exception as e:
+                continue
+        return text.strip()
 
-        
-        # 处理最后一个段落
-        if current_paragraph:
-            processed_lines.append(self._format_paragraph(current_paragraph))
-        
-        return '\n'.join(processed_lines)
-    
-    def _format_paragraph(self, sentences: List[str]) -> str:
-        """格式化单个段落"""
-        # 合并句子，移除硬回车
-        paragraph_text = ''.join(sentences)
-        
-        # # 在句号、问号、感叹号后添加换行（但保留在段落内）
-        # paragraph_text = re.sub(r'([。！？])', r'\1\n', paragraph_text)
-        
-        # 重新组合段落，每段开头空两个中文空格
-        lines = paragraph_text.split('\n')
-        formatted_lines = []
-        
-        for i, line in enumerate(lines):
-            line = line.strip()
-            if line:
-                if i == 0:
-                    formatted_lines.append(f"　　{line}")  # 首行缩进两个中文空格
-                else:
-                    formatted_lines.append(line)
-        
-        return '\n'.join(formatted_lines)
-    
-    def generate_toc(self, chapters: List[Tuple[int, str]]) -> str:
-        """生成目录"""
-        if not chapters:
-            return ""
-        
-        toc_lines = ["目录", "=" * 20]
-        
-        for i, (line_num, title) in enumerate(chapters, 1):
-            # 清理标题中的多余空格
-            clean_title = re.sub(r'\s+', ' ', title.strip())
-            toc_lines.append(f"{i:02d}. {clean_title}")
-        
-        toc_lines.extend(["=" * 20, ""])
-        return '\n'.join(toc_lines)
-    
-    def add_chapter_spacing(self, content: str) -> str:
-        """在章节之间增加2个空行"""
-        lines = content.split('\n')
-        processed_lines = []
-        
-        for i, line in enumerate(lines):
-            processed_lines.append(line)
-            
-            # 检查当前行是否是章节标题
-            line_clean = line.strip()
-            if line_clean:
-                is_chapter = False
-                for pattern in self.chapter_patterns:
-                    if re.match(pattern, line_clean):
-                        is_chapter = True
-                        break
-                
-                if is_chapter and self._is_real_chapter_title(lines, i, line_clean):
-                    # 在章节标题后添加2个空行
-                    processed_lines.append('')
-                    processed_lines.append('')
-        
-        return '\n'.join(processed_lines)
-    
+
     def process_novel(self, file_path: str) -> bool:
+
         """处理小说的主函数"""
         print(f"开始处理文件: {file_path}")
         
@@ -636,30 +516,61 @@ class novel_process:
         if not content:
             return False
         
-        print("1. 删除多余空白行...")
-        content = self.remove_extra_blank_lines(content)
-        
-        print("2. 检测章节...")
+        #1. 将所有的换行符统一替换为 \n
+        content = content.replace('\r\n', '\n').replace('\r', '\n')
+
+        """处理段落格式"""
         lines = content.split('\n')
-        chapters = self.detect_chapters(lines)
-        print(f"检测到 {len(chapters)} 个章节")
+        processed_lines = []
+
+        # 2. 去除硬回车。核心正则：如果换行符前不是结束标点，就删除换行符（用空字符串替换）
+        # 这个正则更完善，考虑了引号、括号等可能出现在行尾的情况
+        not_end_pattern = re.compile(r'.*?[^.。!！?？…\"\”\)）\]】:：.=\-」]$', re.MULTILINE)
+        temp_content = ''
         
-        # print("3. 生成目录...")
-        # toc = self.generate_toc(chapters)
-        toc = ""
-        
-        print("4. 处理段落格式...")
-        content = self.process_paragraphs(content)
-        
-        print("5. 添加章节间距...")
-        content = self.add_chapter_spacing(content)
-        
-        # 合并目录和内容
-        final_content = toc + content if toc else content
+        for line in lines:
+            line = self.replace_line(line)
+            if line:
+                # 检测是否是章节标题
+                is_chapter = any(re.match(pattern,line) for pattern in self.chapter_patterns)
+                # for pattern in self.chapter_patterns:
+                #     if re.match(pattern, line):
+                #         is_chapter = True
+                #         break
+                if not temp_content and self.is_short_title and len(line) <= self.short_title_length:     # 短标题处理
+                    is_chapter = True 
+
+                if is_chapter :
+                    if temp_content:  # 如果有临时内容，则先处理
+                            if self.is_indent:  # 段落缩进
+                                temp_content = self.indent_chars + temp_content # 首行缩进
+                            processed_lines.append(temp_content)
+                            temp_content = ''
+                    processed_lines.append(line)  
+
+                else:
+                    if re.match(not_end_pattern, line):
+                        temp_content += line
+                    else:
+                        line = temp_content + line
+                        if self.is_indent:  # 段落缩进
+                            line = self.indent_chars + line  # 首行缩进
+                        processed_lines.append(line)
+                        temp_content = ''
+        # 最后一个line 处理
+        if temp_content:  # 如果有临时内容，则先处理
+            if self.is_indent:  # 段落缩进
+                processed_lines.append(f"{self.indent_chars}{temp_content}")  # 首行缩进两个英文空格
+            else:
+                processed_lines.append(temp_content)
+
+        if self.is_2lines_space:  # 两行空行
+            final_content =  '\n\n'.join(processed_lines)
+        else:
+            final_content = '\n'.join(processed_lines)
         
         print("6. 保存文件...")
         output_path = self.save_file(file_path, final_content)
-        
         if output_path:
             print("处理完成！")
             return True
@@ -667,6 +578,7 @@ class novel_process:
             print("处理失败！")
             return False
 
+    
 
     
 def main():
@@ -687,7 +599,7 @@ def main():
     file_path = sys.argv[1]
 
     # # 手动测试时：
-    # sub_path = r"test\test.srt"
+    # file_path = r"test\testn.txt"
     # is_srt2ass = True
 
     # # 实例化类并执行其中的总流程：

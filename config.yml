@@ -2,9 +2,30 @@
 # 单引号字符串中所有字符都作为字面量处理，适用于包含需要原样显示的路径、正则表达式等
 # 使用''表示单引号本身（转义）
 
+# 字幕配置设置：
 ass_file: ass_style.ass
 max_duration: 7
 replacements:
   '([嗯喂哦]){3,}': '\1'
   '.*98堂.*': ''
   '^(\W*太?熟悉\W*)+': ''
+
+
+# 文本配置设置：
+
+# 首行是否缩进：
+is_indent: true
+# 缩进字符：
+indent_chars: '  '
+# 段间是否空2行：
+is_2lines_space: true
+# 是否使用短标题：
+is_short_title: true
+# 短标题长度：
+short_title_length: 12
+# 替换的正则表达式
+text_replacements:
+  '.*分节阅读.*': ''
+  '.*本书为TXT图书下载网.*': ''
+  '.*用户上传之内容.*': ''
+  '.*bookdown\.com\.cn.*': ''
